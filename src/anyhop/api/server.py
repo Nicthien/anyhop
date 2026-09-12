@@ -451,6 +451,38 @@ def _api_secret(api: dict) -> str:
     return value
 
 
+def _web_password() -> str | None:
+    """Return the opt-in remote Web UI password.
+
+    The password is deliberately separate from the API bearer secret.  A
+    browser password must not automatically become a credential that can be
+    used to export VPN configuration through the REST API.
+    """
+    env = os.environ.get("ANYHOP_WEB_PASSWORD")
+    path = os.environ.get("ANYHOP_WEB_PASSWORD_FILE")
+    if env is not None and path is not None:
+        raise ApiConfigError(
+            "both ANYHOP_WEB_PASSWORD and ANYHOP_WEB_PASSWORD_FILE are set — "
+            "set exactly one"
+        )
+    if path is not None:
+        try:
+            value = Path(path).read_text().strip()
+        except OSError as e:
+            raise ApiConfigError(
+                f"ANYHOP_WEB_PASSWORD_FILE {path!r} is unreadable: {e}"
+            ) from e
+    elif env is not None:
+        value = env.strip()
+    else:
+        return None
+    if len(value) < 16:
+        raise ApiConfigError(
+            "the remote Web UI password is too short — use at least 16 characters"
+        )
+    return value
+
+
 def effective_api() -> dict:
     """The client-facing endpoint after env overrides: ``{"address", "secret",
     "host", "net"}`` — what same-machine tools (``anyhop ui``) use.
@@ -741,6 +773,7 @@ class _Handler(BaseHTTPRequestHandler):
     address = ""
     canonical = ""  # "<per-install-hostname>:<port>" — the browser-facing host
     net = False  # True when the operator opted into a non-loopback bind
+    web_password: str | None = None  # opt-in browser access on a network bind
     logins: auth.LoginTokenStore  # persisted one-time login-token consumption
     # Socket deadline for reading the request line, headers, and body — a
     # client that connects and stalls cannot pin a worker thread forever.
@@ -795,7 +828,11 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         if not self.net:
             return False
-        return path == "/health" or self._bearer_ok()
+        return path == "/health" or self._bearer_ok() or self.web_password is not None
+
+    def _browser_host_ok(self, host: str) -> bool:
+        """Whether ``host`` may participate in the cookie-authenticated UI."""
+        return self._loopback_host(host) or bool(self.net and self.web_password)
 
     def _dry_run(self) -> bool:
         """The ``?dry_run=`` query flag on destructive endpoints — strict: an
@@ -841,9 +878,9 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         parsed = urlparse(origin)
         return (
-            parsed.scheme == "http"
+            parsed.scheme in {"http", "https"}
             and parsed.netloc == host
-            and self._loopback_host(host)
+            and self._browser_host_ok(host)
         )
 
     def _cookie(self) -> str | None:
@@ -1084,7 +1121,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- routes --
     def _root(self, query: dict):
-        if not self._on_canonical_host():
+        if not self._on_canonical_host() and not (
+            self.net and self.web_password is not None
+        ):
             # Send browsers on a literal loopback host (old bookmark, typed
             # 127.0.0.1) to the per-install hostname, query preserved — the
             # session cookie must only ever exist on our unique host, never on
@@ -1155,16 +1194,23 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
     def _login_post(self):
-        if not self._on_canonical_host():
+        remote_browser = (
+            self.net and self.web_password is not None and not self._on_canonical_host()
+        )
+        if not self._on_canonical_host() and not remote_browser:
             # a session cookie must never be minted for a shared literal host
             return self._json(403, {"error": f"sign in at http://{self.canonical}/"})
         body = self._json_body()
         _fields(body, "token")
         token = _str_field(body, "token")
         # accept either a one-time login token or the raw secret (manual paste)
-        if self.logins.verify_and_consume(self.secret, token) or auth.secret_matches(
-            self.secret, token
-        ):
+        accepted = (
+            auth.secret_matches(self.web_password, token)
+            if remote_browser and self.web_password is not None
+            else self.logins.verify_and_consume(self.secret, token)
+            or auth.secret_matches(self.secret, token)
+        )
+        if accepted:
             return self._json(200, {"ok": True}, self._set_session_cookie())
         self._json(401, {"error": "invalid or expired token"})
 
@@ -1817,6 +1863,11 @@ def build_server() -> ThreadingHTTPServer:
     _Handler.secret = _api_secret(api)  # ApiConfigError propagates: fail loud
     _Handler.address = lc["client"]
     _Handler.net = lc["net"]
+    _Handler.web_password = _web_password()
+    if _Handler.web_password is not None and not lc["net"]:
+        raise ApiConfigError(
+            "ANYHOP_WEB_PASSWORD requires a non-loopback ANYHOP_API_LISTEN"
+        )
     _Handler.canonical = _canonical_host(api)
     _Handler.logins = auth.LoginTokenStore(paths.state_dir() / "web_consumed.json")
     host, port = lc["bind"].rsplit(":", 1)

@@ -21,14 +21,16 @@
         <img class="wordmark-img" src="/wordmark.svg" alt="anyhop">
       </div>
       <p class="lead">Control Panel</p>
-      <label class="eyebrow" for="token">Access token</label>
+      <label class="eyebrow" for="token">Password or access token</label>
       <input id="token" name="token" type="password" autocomplete="off" spellcheck="false"
-        placeholder="paste your token" autofocus>
+        placeholder="enter your password" autofocus>
       <button type="submit">Open dashboard</button>
       <p class="err" id="err">That token wasn't accepted. Check it and try again.</p>
       <p class="hint">
-        Run <code>anyhop ui</code> in a terminal to open the dashboard automatically.<br>
-        Or paste the <code>secret</code> from <code>~/.anyhop/control_api.json</code>.
+        Docker administrators can set <code>ANYHOP_WEB_PASSWORD</code> or mount
+        <code>ANYHOP_WEB_PASSWORD_FILE</code>. Local installs can still run
+        <code>anyhop ui</code> or use the secret from
+        <code>~/.anyhop/control_api.json</code>.
       </p>
     </form>
   </div>

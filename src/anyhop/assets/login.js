@@ -22,7 +22,7 @@ form.addEventListener("submit", async (e) => {
       location.href = "/";
       return;
     }
-    err.textContent = "That token wasn't accepted. Check it and try again.";
+    err.textContent = "That password or token wasn't accepted. Check it and try again.";
   } catch (error_) {
     const detail = error_ instanceof Error ? error_.message : String(error_);
     err.textContent = `Couldn't reach the dashboard: ${detail}`;

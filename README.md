@@ -14,7 +14,37 @@
 
 # anyhop
 
+> **Nicthien Docker Web UI fork.** This fork keeps upstream anyhop's secure
+> loopback-only behavior by default and adds an explicit, password-protected
+> remote Web UI mode for NAS and homelab Docker deployments. Its purpose is to
+> make the complete anyhop dashboard reachable from a trusted LAN while keeping
+> the REST API bearer secret separate from the human Web UI password. See
+> [Remote Web UI for Docker](#remote-web-ui-for-docker).
+
 A universal VPN client that manages multiple VPN connections with rule-based routing, with interfaces for human (Web UI and CLI) and programs (REST API and Docker image).
+
+## Remote Web UI for Docker
+
+The upstream project intentionally keeps browser sessions on loopback. This
+fork adds an opt-in mode for Unraid, NAS, and homelab deployments:
+
+```yaml
+environment:
+  ANYHOP_API_LISTEN: "0.0.0.0:8080"
+  ANYHOP_API_SECRET_FILE: /run/secrets/api-secret
+  ANYHOP_WEB_PASSWORD_FILE: /run/secrets/web-password
+ports:
+  - "8080:8080"
+```
+
+`ANYHOP_WEB_PASSWORD` may be used instead of the file variant, but Docker
+environment values are visible through container inspection. Passwords must be
+at least 16 characters. The remote dashboard remains disabled unless both a
+non-loopback `ANYHOP_API_LISTEN` and a Web password are configured. The API
+continues to require its independent Bearer secret.
+
+Publish the port only on a trusted LAN. Use an HTTPS reverse proxy for access
+outside that LAN.
 
 ## Platforms
 

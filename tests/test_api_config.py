@@ -1,7 +1,8 @@
-"""The 7B env knobs: ANYHOP_API_LISTEN (opt-in non-loopback bind) and
+"""Network API and opt-in password-protected remote Web UI configuration.
+
+The 7B env knobs: ANYHOP_API_LISTEN (opt-in non-loopback bind) and
 ANYHOP_API_SECRET[_FILE] (injected Bearer secret), plus the network-bind Host
-carve-outs — Bearer and /health pass a foreign Host, the cookie path never
-does. Config parsing is unit-tested; the gate behavior runs against a real
+carve-outs. Config parsing is unit-tested; the gate behavior runs against a real
 server on a loopback port with the handler flipped to net mode."""
 
 from __future__ import annotations
@@ -154,6 +155,43 @@ def test_wait_until_serving_is_false_not_a_crash_on_bad_config(monkeypatch, tmp_
     assert server.wait_until_serving(timeout=0.1) is False
 
 
+# ---- ANYHOP_WEB_PASSWORD[_FILE] ---------------------------------------------
+
+
+def test_web_password_unset_disables_remote_browser_access(monkeypatch):
+    monkeypatch.delenv("ANYHOP_WEB_PASSWORD", raising=False)
+    monkeypatch.delenv("ANYHOP_WEB_PASSWORD_FILE", raising=False)
+    assert server._web_password() is None
+
+
+def test_web_password_env_and_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANYHOP_WEB_PASSWORD", "a-strong-browser-password")
+    assert server._web_password() == "a-strong-browser-password"
+    monkeypatch.delenv("ANYHOP_WEB_PASSWORD")
+    password_file = tmp_path / "web-password"
+    password_file.write_text("a-file-browser-password\n")
+    monkeypatch.setenv("ANYHOP_WEB_PASSWORD_FILE", str(password_file))
+    assert server._web_password() == "a-file-browser-password"
+
+
+def test_web_password_rejects_weak_and_conflicting_values(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANYHOP_WEB_PASSWORD", "short")
+    with pytest.raises(server.ApiConfigError, match="too short"):
+        server._web_password()
+    password_file = tmp_path / "web-password"
+    password_file.write_text("a-file-browser-password")
+    monkeypatch.setenv("ANYHOP_WEB_PASSWORD_FILE", str(password_file))
+    with pytest.raises(server.ApiConfigError, match="exactly one"):
+        server._web_password()
+
+
+def test_web_password_requires_network_bind(monkeypatch):
+    monkeypatch.setenv("ANYHOP_WEB_PASSWORD", "a-strong-browser-password")
+    monkeypatch.delenv("ANYHOP_API_LISTEN", raising=False)
+    with pytest.raises(server.ApiConfigError, match="non-loopback"):
+        server.build_server()
+
+
 # ---- live servers -----------------------------------------------------------
 
 
@@ -168,6 +206,21 @@ def live_net(monkeypatch):
     Store.load().add_provider("nordvpn")
     httpd = server.build_server()
     monkeypatch.setattr(server._Handler, "net", True)
+    thread = start_test_server(httpd)
+    api = server.control_api()
+    try:
+        yield f"http://{api['address']}", api["secret"]
+    finally:
+        stop_test_server(httpd, thread)
+
+
+@pytest.fixture
+def live_net_web(monkeypatch):
+    """A net-mode server with the remote password gate explicitly enabled."""
+    Store.load().add_provider("nordvpn")
+    httpd = server.build_server()
+    monkeypatch.setattr(server._Handler, "net", True)
+    monkeypatch.setattr(server._Handler, "web_password", "a-strong-browser-password")
     thread = start_test_server(httpd)
     api = server.control_api()
     try:
@@ -228,6 +281,28 @@ def test_net_bind_cookie_path_stays_loopback_only(live_net):
     base, _ = live_net
     st, _ = _req(base + "/", headers=FOREIGN)
     assert st == 403
+
+
+def test_remote_web_password_opens_login_page_and_authenticates(live_net_web):
+    base, _ = live_net_web
+    st, body = _req(base + "/", headers=FOREIGN)
+    assert st == 200 and b"Password or access token" in body
+
+    request_headers = {**FOREIGN, "Origin": "http://anyhop:8080"}
+    st, _ = _req(
+        base + "/api/v1/login",
+        method="POST",
+        headers=request_headers,
+        data={"token": "wrong-password-value"},
+    )
+    assert st == 401
+    st, body = _req(
+        base + "/api/v1/login",
+        method="POST",
+        headers=request_headers,
+        data={"token": "a-strong-browser-password"},
+    )
+    assert st == 200 and json.loads(body)["ok"] is True
 
 
 def test_net_bind_bearer_mutation_passes_a_foreign_host(live_net):

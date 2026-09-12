@@ -211,6 +211,16 @@ example in [docker-compose.md](docker-compose.md), and the trust analysis in
 credentials, so the secret is mandatory, the port stays unpublished, and the
 state volume is never shared as a way to read it.
 
+### Password-protected remote Web UI (Nicthien fork)
+
+This fork can expose the browser dashboard to a trusted LAN. Set
+`ANYHOP_API_LISTEN=0.0.0.0:8080` together with either
+`ANYHOP_WEB_PASSWORD` or `ANYHOP_WEB_PASSWORD_FILE`. The password must contain
+at least 16 characters. Browser access remains disabled on network binds when
+no Web password is configured, and the REST API continues to use its separate
+Bearer secret. Prefer the file option because environment variables are visible
+through Docker inspection. Use an HTTPS reverse proxy outside a trusted LAN.
+
 ## Gateway container (tun mode)
 
 The tun core captures only the container's netns — the privilege is granted

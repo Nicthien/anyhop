@@ -113,6 +113,16 @@ export function toast(msg, kind = "ok") {
 }
 
 const dialogClosers = new Set();
+let dialogSequence = 0;
+
+// randomUUID() is restricted to secure contexts in several browsers.  The
+// WebUI is commonly opened over plain HTTP on a private NAS address, so DOM
+// ids must not depend on that API being available.
+function nextDialogTitleId() {
+  dialogSequence += 1;
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return `dialog-title-${uuid || `${Date.now().toString(36)}-${dialogSequence}`}`;
+}
 
 function dialogA11y(root, finish) {
   const previous = document.activeElement;
@@ -146,7 +156,7 @@ export function dismissDialogs() {
 
 // --- modal: opens with a title + body HTML; returns { root, close }. ---
 export function modal(title, bodyHTML) {
-  const titleId = `dialog-title-${crypto.randomUUID()}`;
+  const titleId = nextDialogTitleId();
   const root = node(`
     <div class="overlay">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="${titleId}">

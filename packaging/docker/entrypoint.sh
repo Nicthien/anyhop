@@ -11,6 +11,8 @@ set -eu
 
 BUNDLE="${ANYHOP_BUNDLE-/etc/anyhop/bundle.yaml}"
 STATE="${ANYHOP_HOME:-/var/lib/anyhop}"
+WG_CONFIG="${ANYHOP_WIREGUARD_CONFIG:-}"
+WG_PROVIDER="${ANYHOP_WIREGUARD_PROVIDER:-protonvpn}"
 
 fail() {
 	echo "anyhop-entrypoint: ERROR: $*" >&2
@@ -78,6 +80,17 @@ ANYHOP_BUNDLE=none for the explicit no-bundle profile"
 else
 	echo "anyhop-entrypoint: syncing $BUNDLE" >&2
 	run_as anyhop sync "$BUNDLE"
+fi
+
+# NAS migration helper: import an existing provider-generated WireGuard file
+# directly from a read-only bind mount. Re-importing the same filename is an
+# idempotent upsert, so provider key rotations are picked up on container
+# restart without copying the private key into an environment variable.
+if [ -n "$WG_CONFIG" ]; then
+	[ -f "$WG_CONFIG" ] || fail "ANYHOP_WIREGUARD_CONFIG=$WG_CONFIG is not a regular file"
+	echo "anyhop-entrypoint: importing $WG_CONFIG under $WG_PROVIDER" >&2
+	run_as anyhop providers add "$WG_PROVIDER"
+	run_as anyhop channels add "$WG_PROVIDER" --config "$WG_CONFIG"
 fi
 
 # Gateway profile (ANYHOP_GATEWAY=1): privilege-check and declare the

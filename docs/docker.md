@@ -221,6 +221,12 @@ no Web password is configured, and the REST API continues to use its separate
 Bearer secret. Prefer the file option because environment variables are visible
 through Docker inspection. Use an HTTPS reverse proxy outside a trusted LAN.
 
+For a migration from Gluetun or another WireGuard client, mount the existing
+`.conf` read-only and set `ANYHOP_WIREGUARD_CONFIG` to that path. The entrypoint
+imports it idempotently under `protonvpn`; override the config-provider key with
+`ANYHOP_WIREGUARD_PROVIDER` when needed. The private key therefore stays in the
+mounted file instead of an environment variable.
+
 ## Gateway container (tun mode)
 
 The tun core captures only the container's netns — the privilege is granted

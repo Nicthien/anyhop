@@ -46,6 +46,12 @@ continues to require its independent Bearer secret.
 Publish the port only on a trusted LAN. Use an HTTPS reverse proxy for access
 outside that LAN.
 
+An existing WireGuard configuration can also be reused without copying its
+private key into Docker variables. Bind-mount the `.conf` read-only and set
+`ANYHOP_WIREGUARD_CONFIG` to its container path. The optional
+`ANYHOP_WIREGUARD_PROVIDER` defaults to `protonvpn`; importing the same filename
+again is idempotent and updates rotated keys on restart.
+
 ## Platforms
 
 ### Supported

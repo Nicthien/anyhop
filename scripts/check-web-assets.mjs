@@ -21,6 +21,12 @@ for (const name of files) {
     if (source.includes(sink)) failures.push(`${name}: unsafe HTML/code sink ${sink}`);
   }
   if (/\.outerHTML\s*=/.test(source)) failures.push(`${name}: unsafe outerHTML assignment`);
+  if (/\bcrypto\.randomUUID\s*\(/.test(source)) {
+    failures.push(`${name}: direct crypto.randomUUID call breaks insecure LAN origins`);
+  }
+  if (/\bnavigator\.clipboard\.(?:readText|writeText)\s*\(/.test(source)) {
+    failures.push(`${name}: direct Clipboard API call breaks insecure LAN origins`);
+  }
 }
 
 if (failures.length) {

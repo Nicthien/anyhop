@@ -7,6 +7,7 @@ import {
   enabledChannelKeys,
   parseSpeedStream,
   visibleTraffic,
+  writeClipboard,
 } from "../src/anyhop/assets/dashboard.js";
 
 function stream(parts) {
@@ -19,6 +20,56 @@ function stream(parts) {
 }
 
 const enc = new TextEncoder();
+
+test("clipboard uses the secure-context API when available", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let copied = "";
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { clipboard: { writeText: async (text) => { copied = text; } } },
+  });
+  try {
+    await writeClipboard("router-address");
+    assert.equal(copied, "router-address");
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete globalThis.navigator;
+  }
+});
+
+test("clipboard falls back to selection copy on insecure LAN origins", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const input = {
+    style: {},
+    setAttribute() {},
+    select() { this.selected = true; },
+    setSelectionRange(start, end) { this.range = [start, end]; },
+    remove() { this.removed = true; },
+  };
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      body: { appendChild(node) { node.appended = true; } },
+      createElement: () => input,
+      execCommand(command) { return command === "copy"; },
+    },
+  });
+  try {
+    await writeClipboard("proxy-address");
+    assert.equal(input.value, "proxy-address");
+    assert.equal(input.appended, true);
+    assert.equal(input.selected, true);
+    assert.deepEqual(input.range, [0, 13]);
+    assert.equal(input.removed, true);
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete globalThis.navigator;
+    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+    else delete globalThis.document;
+  }
+});
 
 test("disabled channels expose no test targets or cached traffic", () => {
   const channels = [

@@ -216,9 +216,37 @@ async function toggleTun() {
   });
 }
 
+export async function writeClipboard(text) {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (typeof clipboard?.writeText === "function") {
+    await clipboard.writeText(text);
+    return;
+  }
+
+  // navigator.clipboard is unavailable on insecure origins in Chromium.  The
+  // WebUI is commonly opened over plain HTTP on a private NAS address, so keep
+  // a selection-based fallback for those deployments.
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  input.style.pointerEvents = "none";
+  document.body.appendChild(input);
+  input.select();
+  input.setSelectionRange(0, input.value.length);
+  try {
+    if (typeof document.execCommand !== "function" || !document.execCommand("copy")) {
+      throw new Error("browser denied clipboard access");
+    }
+  } finally {
+    input.remove();
+  }
+}
+
 async function copy(text) {
   try {
-    await navigator.clipboard.writeText(text);
+    await writeClipboard(text);
     toast(`Copied ${text}`);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
